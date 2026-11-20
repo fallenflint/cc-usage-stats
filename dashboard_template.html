@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Claude Code usage</title>
+<style>
+:root{--bg:#f7f7f5;--card:#fff;--fg:#1d1d1b;--mute:#6b6b66;--line:#e4e3de;--acc:#c96442;--bar:#d9825f;--bar2:#7a9cc6;--bar3:#8fb07a;--bar4:#b08fc0;--bar5:#c9b25f}
+@media (prefers-color-scheme:dark){:root{--bg:#1a1a18;--card:#242422;--fg:#ecebe6;--mute:#9a998f;--line:#3a3935;--acc:#e08a66}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:1200px;margin:0 auto;padding:16px}
+h1{font-size:20px;margin:0}h2{font-size:15px;margin:0 0 10px}
+header{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin-bottom:14px}
+.mute{color:var(--mute)}.small{font-size:12px}
+.ctl{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+button,select{font:inherit;background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:7px;padding:5px 10px;cursor:pointer}
+button.on{background:var(--acc);color:#fff;border-color:var(--acc)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.kpi .v{font-size:24px;font-weight:650;font-variant-numeric:tabular-nums}.kpi .l{color:var(--mute);font-size:12px}
+.chart{overflow-x:auto}.chart svg{display:block}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+th,td{padding:5px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th{font-weight:600;color:var(--mute);font-size:12px;cursor:pointer;user-select:none}
+td:first-child,th:first-child{text-align:left;white-space:normal}
+tr.sub td{color:var(--mute);font-size:12px}
+.grid2{display:grid;grid-template-columns:1fr;gap:14px;margin-bottom:14px}
+@media(min-width:900px){.grid2{grid-template-columns:3fr 2fr}}
+.legend{display:flex;flex-wrap:wrap;gap:10px;font-size:12px;color:var(--mute);margin-top:6px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+.wrap{overflow-x:auto}
+.tag{font-size:11px;color:var(--mute);border:1px solid var(--line);border-radius:4px;padding:0 4px;margin-left:4px}
+#tip{position:fixed;pointer-events:none;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:6px 8px;font-size:12px;display:none;z-index:9;box-shadow:0 2px 8px #0002}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <div><h1>Claude Code — расход</h1><div class="mute small" id="stamp"></div></div>
+  <div class="ctl" id="ranges"></div>
+</header>
+<div class="kpis" id="kpis"></div>
+<div class="card chart" style="margin-bottom:14px"><h2>По дням, $ по ценам API</h2><div id="daily"></div><div class="legend" id="legend"></div></div>
+<div class="grid2">
+  <div class="card wrap"><h2>По проектам</h2><table id="proj"></table></div>
+  <div class="card wrap"><h2>По моделям</h2><table id="models"></table></div>
+</div>
+<div class="card wrap"><h2>Сессии <span class="mute small">(авто-запуски свёрнуты в родителя)</span></h2><table id="sess"></table></div>
+<p class="mute small">Деньги — по прейскуранту API из локальных транскриптов (подписка их не списывает). Часы — активное время: сумма пауз ≤15 мин между репликами. День — по часовому поясу из config.json.</p>
+</main>
+<div id="tip"></div>
+<script>
+let DATA=/*__DATA__*/null;
+const $=s=>document.querySelector(s);
+const money=x=>x>=1000?'$'+Math.round(x).toLocaleString('ru'):x>=100?'$'+x.toFixed(0):'$'+x.toFixed(2);
+const tok=x=>x>=1e9?(x/1e9).toFixed(2)+'B':x>=1e6?(x/1e6).toFixed(1)+'M':x>=1e3?(x/1e3).toFixed(0)+'K':String(x);
+const hrs=h=>h>=10?h.toFixed(0)+' ч':h.toFixed(1)+' ч';
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const COLORS=['var(--bar)','var(--bar2)','var(--bar3)','var(--bar4)','var(--bar5)','#999'];
+let range=(()=>{try{return localStorage.getItem('ccr')||'period'}catch(e){return 'period'}})();
+let sortK={proj:'c',sess:'c'};
+
+function localDay(t){return new Date((t+DATA.tz*3600)*1000).toISOString().slice(0,10)}
+function rangeDays(){
+  const today=localDay(Date.now()/1000), ps=localDay(DATA.period[0]);
+  const add=(d,n)=>{const x=new Date(d+'T00:00:00Z');x.setUTCDate(x.getUTCDate()+n);return x.toISOString().slice(0,10)};
+  if(range==='today')return[today,today];
+  if(range==='7d')return[add(today,-6),today];
+  if(range==='30d')return[add(today,-29),today];
+  if(range==='period')return[ps,today];
+  if(range==='prev')return[localDay(DATA.period[0]-28*86400).slice(0,8)+String(DATA.billing_day).padStart(2,'0'),add(ps,-1)];
+  return['0000','9999'];
+}
+function render(){
+  const [d0,d1]=rangeDays(), inR=d=>d>=d0&&d<=d1;
+  $('#stamp').textContent='Данные на '+new Date(DATA.last_collect*1000).toLocaleString('ru')+' · период подписки с '+new Date(DATA.period[0]*1000).toLocaleDateString('ru');
+  // ranges
+  const R=[['today','Сегодня'],['7d','7 дней'],['period','Месяц подписки'],['prev','Прошлый месяц'],['30d','30 дней'],['all','Всё']];
+  $('#ranges').innerHTML=R.map(([k,l])=>`<button data-r="${k}" class="${k===range?'on':''}">${l}</button>`).join('')+(location.protocol.startsWith('http')?'<button id="rf">Обновить</button>':'');
+  document.querySelectorAll('[data-r]').forEach(b=>b.onclick=()=>{range=b.dataset.r;try{localStorage.setItem('ccr',range)}catch(e){};render()});
+  if($('#rf'))$('#rf').onclick=refresh;
+  // fold rows
+  const byId={};DATA.rows.forEach(r=>byId[r.id]=r);
+  const sess={};let T={c:0,tok:0,i:0,cw:0,cr:0,o:0,n:0,h:0},prompts=0,sessCount=0;
+  const proj={},models={},daily={};
+  for(const r of DATA.rows){
+    let c=0,tk=0,h=0,o=0,n=0;
+    for(const [d,v] of Object.entries(r.days)){ if(!inR(d))continue;
+      c+=v[0];tk+=v[1];o+=v[5];n+=v[6];h+=v[7];
+      T.c+=v[0];T.tok+=v[1];T.i+=v[2];T.cw+=v[3];T.cr+=v[4];T.o+=v[5];T.n+=v[6];T.h+=v[7];
+    }
+    if(!c&&!h)continue;
+    const host=(r.k==='headless'&&byId[r.par])?byId[r.par]:r;
+    const s=sess[host.id]||(sess[host.id]={r:host,c:0,tk:0,h:0,o:0,kids:0,kc:0});
+    s.c+=c;s.tk+=tk;s.h+=h;s.o+=o;if(host!==r){s.kids++;s.kc+=c}
+    const p=proj[r.p]||(proj[r.p]={c:0,tk:0,h:0,s:new Set()});p.c+=c;p.tk+=tk;p.h+=h;p.s.add(host.id);
+  }
+  for(const s of Object.values(sess)){ if(s.r.k!=='headless'||!byId[s.r.par])sessCount++; prompts+=s.r.pr||0 }
+  for(const [d,ms] of Object.entries(DATA.model_days)){ if(!inR(d))continue;
+    for(const [m,v] of Object.entries(ms)){const x=models[m]||(models[m]={c:0,tk:0});x.c+=v[0];x.tk+=v[1];
+      (daily[d]||(daily[d]={}))[m]=v[0]}}
+  const nd=Object.keys(daily).length||1;
+  const kp=[['Деньги (API-цены)',money(T.c),nd>1?money(T.c/nd)+' в день':''],['Токены',tok(T.tok),'вывод '+tok(T.o)+' · кэш '+(T.tok?Math.round(T.cr/T.tok*100):0)+'%'],
+    ['Активные часы',hrs(T.h),nd>1?hrs(T.h/nd)+' в день':''],['Сессии',sessCount,T.n.toLocaleString('ru')+' ответов модели']];
+  $('#kpis').innerHTML=kp.map(([l,v,s])=>`<div class="card kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="l">${s}</div></div>`).join('');
+  drawDaily(daily,Object.entries(models).sort((a,b)=>b[1].c-a[1].c).map(x=>x[0]));
+  // projects
+  const pr=Object.entries(proj).map(([k,v])=>({k,c:v.c,tk:v.tk,h:v.h,s:v.s.size}));
+  table('#proj','proj',pr,[['k','Проект',x=>esc(x)],['c','$',money],['tk','Токены',tok],['h','Часы',hrs],['s','Сессий',String]]);
+  const mr=Object.entries(models).map(([k,v])=>({k:k.replace('claude-',''),c:v.c,tk:v.tk,sh:T.c?v.c/T.c:0}));
+  mr.sort((a,b)=>b.c-a.c);
+  $('#models').innerHTML='<tr><th>Модель</th><th>$</th><th>Токены</th><th>Доля</th></tr>'+mr.map(m=>`<tr><td>${esc(m.k)}</td><td>${money(m.c)}</td><td>${tok(m.tk)}</td><td>${Math.round(m.sh*100)}%</td></tr>`).join('');
+  const sr=Object.values(sess).map(s=>({k:s.r.t,id:s.r.id,p:s.r.p,c:s.c,tk:s.tk,h:s.h,pr:s.r.pr,e:s.r.e||0,kids:s.kids,kc:s.kc,hl:s.r.k==='headless',arch:s.r.arch}));
+  table('#sess','sess',sr,[['k','Сессия',(x,r)=>esc(x)+(r.hl?'<span class="tag">авто</span>':'')+(r.kids?`<span class="tag">+${r.kids} авто, ${money(r.kc)}</span>`:'')+`<div class="mute small">${esc(r.p)}</div>`],
+    ['c','$',money],['tk','Токены',tok],['h','Часы',hrs],['pr','Реплик',String],['e','Последняя',t=>t?new Date(t*1000).toLocaleDateString('ru',{day:'2-digit',month:'2-digit'}):'']],200);
+}
+function table(sel,key,rows,cols,limit){
+  const k=sortK[key];rows.sort((a,b)=>typeof a[k]==='string'?a[k].localeCompare(b[k]):b[k]-a[k]);
+  const shown=limit?rows.slice(0,limit):rows;
+  $(sel).innerHTML='<tr>'+cols.map(([c,l])=>`<th data-k="${c}">${l}${c===k?' ↓':''}</th>`).join('')+'</tr>'+
+    shown.map(r=>'<tr>'+cols.map(([c,,f])=>`<td>${f(r[c],r)}</td>`).join('')+'</tr>').join('')+
+    (limit&&rows.length>limit?`<tr class="sub"><td colspan="${cols.length}">ещё ${rows.length-limit}…</td></tr>`:'');
+  document.querySelectorAll(sel+' th').forEach(th=>th.onclick=()=>{sortK[key]=th.dataset.k;render()});
+}
+function drawDaily(daily,order){
+  const days=Object.keys(daily).sort();
+  if(!days.length){$('#daily').innerHTML='<p class="mute">Нет данных за период</p>';$('#legend').innerHTML='';return}
+  const top=order.slice(0,5),col=m=>COLORS[top.indexOf(m)>=0?top.indexOf(m):5];
+  const tot=days.map(d=>Object.values(daily[d]).reduce((a,b)=>a+b,0)),max=Math.max(...tot)||1;
+  const W=Math.max(days.length*18,600),H=200,pad=34,bw=Math.min(36,Math.max(4,(W-pad)/days.length-3));
+  let s=`<svg width="${W}" height="${H+24}" font-size="10" fill="currentColor">`;
+  for(let i=0;i<=4;i++){const y=H-(H-10)*i/4;s+=`<line x1="${pad}" x2="${W}" y1="${y}" y2="${y}" stroke="var(--line)"/><text x="${pad-4}" y="${y+3}" text-anchor="end" fill="var(--mute)">${money(max*i/4).replace('.00','')}</text>`}
+  days.forEach((d,i)=>{let y=H;const x=pad+i*((W-pad)/days.length)+1;
+    for(const m of [...order].reverse()){const v=daily[d][m]||0;if(!v)continue;const h=(H-10)*v/max;y-=h;s+=`<rect x="${x}" y="${y}" width="${bw}" height="${h}" fill="${col(m)}"/>`}
+    s+=`<rect x="${x}" y="0" width="${bw}" height="${H}" fill="transparent" data-d="${d}"/>`;
+    if(days.length<=31||i%Math.ceil(days.length/31)===0)s+=`<text x="${x+bw/2}" y="${H+14}" text-anchor="middle" fill="var(--mute)">${d.slice(8)}${d.slice(8)==='01'||i===0?'.'+d.slice(5,7):''}</text>`});
+  $('#daily').innerHTML=s+'</svg>';
+  $('#legend').innerHTML=top.map(m=>`<span><i style="background:${col(m)}"></i>${esc(m.replace('claude-',''))}</span>`).join('')+(order.length>5?'<span><i style="background:#999"></i>прочие</span>':'');
+  const tip=$('#tip');
+  document.querySelectorAll('#daily [data-d]').forEach(r=>{r.onmousemove=e=>{const d=r.dataset.d,ms=daily[d];
+    tip.innerHTML=`<b>${d}</b> · ${money(Object.values(ms).reduce((a,b)=>a+b,0))}<br>`+Object.entries(ms).sort((a,b)=>b[1]-a[1]).map(([m,v])=>`${esc(m.replace('claude-',''))}: ${money(v)}`).join('<br>');
+    tip.style.display='block';tip.style.left=Math.min(e.clientX+12,innerWidth-200)+'px';tip.style.top=(e.clientY+12)+'px'};r.onmouseleave=()=>tip.style.display='none'});
+}
+async function load(){const r=await fetch('/api/data',{cache:'no-store'});DATA=await r.json();render()}
+async function refresh(){const b=$('#rf');b.textContent='Собираю…';b.disabled=true;try{await fetch('/api/refresh',{method:'POST'});await load()}finally{}}
+if(location.protocol.startsWith('http')&&!DATA){load();setInterval(load,5*60*1000)}else render();
+</script>
+</body>
+</html>

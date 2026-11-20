@@ -1,0 +1,10 @@
+{
+ "_comment": "Copied to ~/.claude/usage-stats/config.json on install; edit that copy. billing_day: day of month your subscription renews. tz: hours from UTC for cutting days (omit = this PC's zone). rules: [regex on the lowercased cwd with forward slashes, project name]; first match wins, unmatched folders are grouped by their last path segment. extra_roots: more folders holding Claude Code projects/ transcripts.",
+ "billing_day": 1,
+ "port": 8777,
+ "extra_roots": [],
+ "rules": [
+  ["my-app", "My App"],
+  ["clients/acme", "ACME"]
+ ]
+}

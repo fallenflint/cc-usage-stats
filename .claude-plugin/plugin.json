@@ -1,0 +1,8 @@
+{
+  "name": "cc-usage-stats",
+  "version": "1.0.0",
+  "description": "Status line: Claude Code spend today and this subscription month at API prices, from the cc-usage-stats collector",
+  "author": { "name": "Ingvar Flint" },
+  "license": "MIT",
+  "keywords": ["usage", "cost", "statistics", "status line"]
+}

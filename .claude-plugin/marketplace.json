@@ -1,0 +1,6 @@
+{
+  "name": "cc-usage-stats",
+  "description": "Claude Code usage statistics: collector, dashboard, status line",
+  "owner": { "name": "Ingvar Flint" },
+  "plugins": [{ "name": "cc-usage-stats", "source": "./" }]
+}

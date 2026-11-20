@@ -1,0 +1,7 @@
+__pycache__/
+*.db
+*.db-*
+summary.json
+dashboard.html
+config.json
+collect.lock
