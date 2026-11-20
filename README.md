@@ -30,10 +30,10 @@ powershell -ExecutionPolicy Bypass -File F:\Development\cc-usage-stats\install.p
 - adds a "Claude Usage" shortcut to Startup (tray + dashboard at logon);
 - runs the first full collect (a few minutes for many GB of transcripts) and starts the tray.
 
-Then, in Claude Code:
+Then, in Claude Code (or `/plugin marketplace add F:\Development\cc-usage-stats` for the local copy):
 
 ```
-/plugin marketplace add F:\Development\cc-usage-stats
+/plugin marketplace add fallenflint/cc-usage-stats
 /plugin install cc-usage-stats@cc-usage-stats
 ```
 
